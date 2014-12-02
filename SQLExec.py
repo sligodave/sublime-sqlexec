@@ -84,10 +84,22 @@ class Command:
 
     def run(self):
         sublime.status_message(' SQLExec: running SQL command')
-        results, errors = subprocess.Popen(self.text, stdout=subprocess.PIPE,stderr=subprocess.PIPE, shell=True).communicate()
 
-        if not results and errors:
-            self._errors(errors.decode('utf-8', 'replace').replace('\r', ''))
+        pipe = subprocess.Popen(
+            self.text, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
+        )
+        results, errors = pipe.communicate()
+
+        errors = errors.replace(b'Warning: Using a password on the command '
+                                b'line interface can be insecure.\n', b'')
+
+        sublime.status_message(' SQLExec: finished SQL command')
+
+        if not results:
+            if errors:
+                self._errors(errors.decode('utf-8', 'replace').replace('\r', ''))
+            else:
+                results = b'Empty set returned'
 
         return results.decode('utf-8', 'replace').replace('\r', '')
 
