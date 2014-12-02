@@ -69,6 +69,7 @@ class Command:
             sublime.active_window().run_command("show_panel", {"panel": "output." + panelName})
         else:
             panel = sublime.active_window().new_file()
+            panel.set_scratch(True)
 
         panel.set_read_only(False)
         panel.set_syntax_file('Packages/SQL/SQL.tmLanguage')
