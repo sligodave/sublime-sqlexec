@@ -22,5 +22,9 @@
   {
     "caption": "SQLExec: Desc Table",
     "command": "sql_desc"
+  },
+  {
+    "caption": "SQLExec: List Running Queries",
+    "command": "sql_list_threads"
   }
 ]

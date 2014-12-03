@@ -2,6 +2,8 @@
 import tempfile
 import os
 import subprocess
+import threading
+import datetime
 
 import sublime
 import sublime_plugin
@@ -9,6 +11,8 @@ import sublime_plugin
 
 connection = None
 history = ['']
+threads = []
+start_times = []
 
 
 class Connection:
@@ -38,8 +42,7 @@ class Connection:
 
     def execute(self, queries):
         command = self._getCommand(self.settings['options'], queries)
-        command.show()
-        os.unlink(self.tmp.name)
+        self.show(command)
 
     def desc(self):
         query = self.settings['queries']['desc']['query']
@@ -51,31 +54,41 @@ class Connection:
                 tables.append(result.split('|')[1].strip())
             except IndexError:
                 pass
-
-        os.unlink(self.tmp.name)
-
         return tables
 
     def descTable(self, tableName):
         query = self.settings['queries']['desc table']['query'] % tableName
         command = self._getCommand(self.settings['queries']['desc table']['options'], query)
-        command.show()
-
-        os.unlink(self.tmp.name)
+        self.show(command)
 
     def showTableRecords(self, tableName):
         query = self.settings['queries']['show records']['query'] % tableName
         command = self._getCommand(self.settings['queries']['show records']['options'], query)
-        command.show()
+        self.show(command)
 
-        os.unlink(self.tmp.name)
+    def show(self, command):
+        def _show():
+            command.show()
+            os.unlink(self.tmp.name)
+            thread = threading.current_thread()
+            if thread in threads:
+                i = threads.index(thread)
+                del start_times[i]
+                del threads[i]
+        thread = threading.Thread(target=_show, daemon=False)
+        thread.command = command
+        thread.query = open(self.tmp.name).read()[:301]
+        threads.append(thread)
+        start_times.append(datetime.datetime.now())
+        thread.start()
 
 
 class Command:
     def __init__(self, text):
         self.text = text
 
-    def _display(self, panelName, text):
+    def _display(self, text):
+        panelName = 'SQLExec.result'
         if not sublime.load_settings("SQLExec.sublime-settings").get('show_result_on_window'):
             panel = sublime.active_window().create_output_panel(panelName)
             sublime.active_window().run_command("show_panel", {"panel": "output." + panelName})
@@ -88,13 +101,8 @@ class Command:
         panel.run_command('append', {'characters': text})
         panel.set_read_only(True)
 
-    def _result(self, text):
-        self._display('SQLExec', text)
-
-    def _errors(self, text):
-        self._display('SQLExec.errors', text)
-
     def run(self):
+        start_time = datetime.datetime.now()
         sublime.status_message(' SQLExec: running SQL command')
 
         pipe = subprocess.Popen(
@@ -105,21 +113,22 @@ class Command:
         errors = errors.replace(b'Warning: Using a password on the command '
                                 b'line interface can be insecure.\n', b'')
 
+        elapsed = str(datetime.datetime.now() - start_time).encode('utf-8')
+        elapsed = elapsed if elapsed.find(b'.') == -1 else elapsed[:elapsed.find(b'.')]
+        elapsed = b'Elapsed: ' + elapsed + b'\n'
+
         if not results and not errors:
-            results = b'Empty set returned'
+            results = b'Empty set returned\n'
+        if errors:
+            errors += b'\n'
 
         sublime.status_message(' SQLExec: finished SQL command')
-
-        if not results and errors:
-            self._errors(errors.decode('utf-8', 'replace').replace('\r', ''))
-
-        return results.decode('utf-8', 'replace').replace('\r', '')
+        text = elapsed + errors + results
+        return text
 
     def show(self):
-        results = self.run()
-
-        if results:
-            self._result(results)
+        text = self.run()
+        self._display(text.decode('utf-8', 'replace').replace('\r', ''))
 
 
 class Selection:
@@ -257,3 +266,25 @@ class sqlExecute(sublime_plugin.WindowCommand):
 class sqlListConnection(sublime_plugin.WindowCommand):
     def run(self):
         sublime.active_window().show_quick_panel(Options.list(), sqlChangeConnection)
+
+
+class sqlListThreadsCommand(sublime_plugin.WindowCommand):
+    def run(self):
+        if not threads:
+            sublime.message_dialog('No running queries.')
+        else:
+            text = ''
+            hr = '-' * 64
+            for i, thread in enumerate(threads):
+                st = start_times[i]
+                rt = str(datetime.datetime.now() - st)
+                rt = rt if rt.find('.') == -1 else rt[:rt.find('.')]
+                st = st.strftime('%Y-%m-%d %H:%M:%S')
+                text += 'Running Query %d (Started: %s, Elapsed: %s)\n%s\n' % (i + 1, st, rt, hr)
+                text += thread.query[:300]
+                text += '...' if len(thread.query) > 300 else ''
+                text += '\n%s\n' % (hr)
+            panel_name = 'running_queries'
+            panel = sublime.active_window().create_output_panel(panel_name)
+            panel.run_command('append', {'characters': text})
+            sublime.active_window().run_command("show_panel", {"panel": "output." + panel_name})
