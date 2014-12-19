@@ -49,9 +49,10 @@ class Connection:
         command = self._getCommand(self.settings['queries']['desc']['options'], query)
 
         tables = []
-        for result in command.run().splitlines():
+        results = command.run()
+        for result in results.splitlines():
             try:
-                tables.append(result.split('|')[1].strip())
+                tables.append(result.decode('utf8').split('|')[1].strip())
             except IndexError:
                 pass
         return tables
@@ -97,7 +98,6 @@ class Command:
             panel.set_scratch(True)
 
         panel.set_read_only(False)
-        panel.set_syntax_file('Packages/SQL/SQL.tmLanguage')
         panel.run_command('append', {'characters': text})
         panel.set_read_only(True)
 
